@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "updatedAt": null,
+  "source": "Binance USDⓈ-M Futures",
+  "scanIntervalMinutes": 5,
+  "riskDefault": 0.75,
+  "feePerSide": 0.0005,
+  "signals": [],
+  "history": [],
+  "errors": []
+}

@@ -1,0 +1,26 @@
+/* Futures V2 shared strategy engine. Uses closed candles only. */
+(function(root){
+'use strict';
+const ema=(a,n)=>{const o=Array(a.length).fill(null),k=2/(n+1);let p=null,s=0,c=0;for(let i=0;i<a.length;i++){const v=+a[i].c;if(p===null){s+=v;c++;if(c===n){p=s/n;o[i]=p;}}else{p=v*k+p*(1-k);o[i]=p;}}return o;};
+const atr=(a,n=14)=>{const tr=a.map((x,i)=>i?Math.max(x.h-x.l,Math.abs(x.h-a[i-1].c),Math.abs(x.l-a[i-1].c)):x.h-x.l),o=Array(a.length).fill(null);let p=null,s=0;for(let i=0;i<tr.length;i++){if(i<n){s+=tr[i];if(i===n-1){p=s/n;o[i]=p;}}else{p=(p*(n-1)+tr[i])/n;o[i]=p;}}return o;};
+const rsi=(a,n=14)=>{const o=Array(a.length).fill(null);let g=0,l=0;for(let i=1;i<=n&&i<a.length;i++){let d=a[i].c-a[i-1].c;g+=Math.max(0,d);l+=Math.max(0,-d);}if(a.length<=n)return o;g/=n;l/=n;o[n]=l===0?100:100-100/(1+g/l);for(let i=n+1;i<a.length;i++){let d=a[i].c-a[i-1].c;g=(g*(n-1)+Math.max(0,d))/n;l=(l*(n-1)+Math.max(0,-d))/n;o[i]=l===0?100:100-100/(1+g/l);}return o;};
+const aggregate=(a,ms)=>{const out=[];for(const x of a){const t=Math.floor(x.t/ms)*ms;let z=out[out.length-1];if(!z||z.t!==t){z={t,o:x.o,h:x.h,l:x.l,c:x.c,v:x.v,ct:t+ms-1};out.push(z);}else{z.h=Math.max(z.h,x.h);z.l=Math.min(z.l,x.l);z.c=x.c;z.v+=x.v;}}return out;};
+function direction(a){if(a.length<70)return {side:'neutral',why:'Chưa đủ dữ liệu'};const c=a.map(x=>x.c),e20=ema(a,20),e50=ema(a,50),i=a.length-1,rr=rsi(a),up=e20[i]>e50[i]&&c[i]>e20[i],dn=e20[i]<e50[i]&&c[i]<e20[i];return {side:up?'long':dn?'short':'neutral',rsi:rr[i],ema20:e20[i],ema50:e50[i]};}
+function evaluate(c1){
+ const c5=aggregate(c1,300000),c15=aggregate(c1,900000);if(c1.length<100||c5.length<60||c15.length<70)return {ready:false,reason:'Cần tối thiểu 100 nến 1m để phân tích'};
+ // bỏ nến đang chạy theo timestamp đóng
+ const now=Date.now(),a1=c1.filter(x=>x.ct<=now),a5=c5.filter(x=>x.ct<=now),a15=c15.filter(x=>x.ct<=now);if(a1.length<80||a5.length<55||a15.length<50)return {ready:false,reason:'Đang chờ nến đóng'};
+ const d15=direction(a15),d5=direction(a5),i=a1.length-1,p=a1[i],e1=ema(a1,9),r1=rsi(a1),vAvg=a1.slice(Math.max(0,i-20),i).reduce((s,x)=>s+x.v,0)/Math.min(20,i),volRatio=vAvg?p.v/vAvg:1;
+ const trend=d15.side, pullLong=d5.side==='long'&&a5[a5.length-1].c>=d5.ema20*0.997, pullShort=d5.side==='short'&&a5[a5.length-1].c<=d5.ema20*1.003;
+ const prior=a1.slice(Math.max(0,i-5),i),hi=Math.max(...prior.map(x=>x.h)),lo=Math.min(...prior.map(x=>x.l));
+ let side='neutral',why=[];if(trend==='long'&&pullLong&&p.c>hi&&p.c>e1[i]&&r1[i]>=52&&volRatio>=0.8){side='long';why=['15m xu hướng tăng','5m giữ trên EMA20','1m phá đỉnh ngắn hạn','RSI và volume xác nhận'];}
+ if(trend==='short'&&pullShort&&p.c<lo&&p.c<e1[i]&&r1[i]<=48&&volRatio>=0.8){side='short';why=['15m xu hướng giảm','5m giữ dưới EMA20','1m phá đáy ngắn hạn','RSI và volume xác nhận'];}
+ const a5tr=atr(a5,14),last5=a5[a5.length-1],atr5=a5tr[a5.length-1]||last5.c*.003,sw=a5.slice(-7,-1),sg=side==='short'?-1:1,entry=p.c;
+ const swing=side==='long'?Math.min(...sw.map(x=>x.l)):Math.max(...sw.map(x=>x.h));let stop=side==='neutral'?null:(side==='long'?Math.min(swing,entry-atr5*1.2):Math.max(swing,entry+atr5*1.2));if(side!=='neutral'){const risk=Math.abs(entry-stop);stop=side==='long'?entry-risk:entry+risk;}
+ const risk=side==='neutral'?null:Math.abs(entry-stop),target=side==='neutral'?null:entry+sg*risk*1.8;
+ return {ready:true,side,entry,stop,target,risk,rr:1.8,score:side==='neutral'?0:4,why,time:p.ct,price:p.c,trend15:d15.side,trend5:d5.side,rsi1:r1[i],volumeRatio:volRatio,atr5, candles:{m1:a1.length,m5:a5.length,m15:a15.length}};
+}
+function backtest(c1,fee=0.0005,slippage=0.0002){const c5=aggregate(c1,300000),c15=aggregate(c1,900000),signals=[];let last=-1;for(let i=100;i<c1.length-1;i++){const t=c1[i].ct;if(new Date(c1[i].t).getUTCMinutes()%5!==0)continue;if(t-last<20*60000)continue;const sample=c1.slice(0,i+1),s=evaluate(sample);if(!s.ready||s.side==='neutral')continue;let exit=null,result=null,R=null;const entry=s.entry*(s.side==='long'?1+slippage:1-slippage),sg=s.side==='long'?1:-1,risk=Math.abs(entry-s.stop),cost=(fee*2*entry)/risk+(slippage*2*entry)/risk;for(let j=i+1;j<Math.min(c1.length,i+181);j++){const x=c1[j],sl=s.side==='long'?x.l<=s.stop:x.h>=s.stop,tp=s.side==='long'?x.h>=s.target:x.l<=s.target;if(sl){exit=s.stop;result='loss';break;}if(tp){exit=s.target;result='win';break;}}if(!exit){const x=c1[Math.min(c1.length-1,i+180)];exit=x.c;result='expired';}R=sg*(exit-entry)/risk-cost;signals.push({time:t,side:s.side,entry,stop:s.stop,target:s.target,exit,result,R});last=t;i+=1;}
+ const wins=signals.filter(x=>x.R>0).length,loss=signals.filter(x=>x.R<=0).length,rs=signals.map(x=>x.R),grossWin=rs.filter(x=>x>0).reduce((a,b)=>a+b,0),grossLoss=-rs.filter(x=>x<0).reduce((a,b)=>a+b,0),eq=[0];for(const r of rs)eq.push(eq[eq.length-1]+r);let peak=-Infinity,dd=0;for(const x of eq){peak=Math.max(peak,x);dd=Math.max(dd,peak-x);}return {trades:signals.length,wins,losses:loss,winRate:signals.length?wins/signals.length:0,expectancy:rs.length?rs.reduce((a,b)=>a+b,0)/rs.length:0,pf:grossLoss?grossWin/grossLoss:null,maxDrawdownR:dd,netR:rs.reduce((a,b)=>a+b,0),signals,fee,slippage};}
+root.FuturesV2={aggregate,evaluate,backtest,ema,atr,rsi};if(typeof module!=='undefined'&&module.exports)module.exports=root.FuturesV2;
+})(typeof globalThis!=='undefined'?globalThis:this);

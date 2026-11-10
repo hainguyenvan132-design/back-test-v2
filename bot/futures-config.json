@@ -1,0 +1,7 @@
+{
+  "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "LINKUSDT", "SUIUSDT", "AVAXUSDT", "ADAUSDT"],
+  "riskDefault": 0.75,
+  "feePerSide": 0.0005,
+  "slippage": 0.0002,
+  "scanIntervalMinutes": 5
+}
